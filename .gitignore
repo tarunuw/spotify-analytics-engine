@@ -1,0 +1,8 @@
+build/
+data/*.json
+data/*.tsv
+dashboard/report.json
+.DS_Store
+*.o
+*.a
+compile_commands.json

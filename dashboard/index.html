@@ -1,0 +1,699 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Listening Analytics — sae</title>
+<style>
+  /* Palette roles. Every color in the file is referenced through one of these,
+     so light and dark swap in exactly one place. */
+  :root {
+    color-scheme: light;
+    --plane:        #f9f9f7;
+    --surface:      #fcfcfb;
+    --ink:          #0b0b0b;
+    --ink-2:        #52514e;
+    --ink-muted:    #898781;
+    --grid:         #e1e0d9;
+    --axis:         #c3c2b7;
+    --border:       rgba(11, 11, 11, 0.10);
+    --series-1:     #2a78d6;
+    --pos:          #2a78d6;   /* diverging: cool pole */
+    --neg:          #e34948;   /* diverging: warm pole */
+    --mid:          #f0efec;   /* diverging: neutral midpoint */
+    --track:        #eeeeea;   /* unfilled bar track */
+    --hover:        rgba(11, 11, 11, 0.04);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --plane:      #0d0d0d;
+      --surface:    #1a1a19;
+      --ink:        #ffffff;
+      --ink-2:      #c3c2b7;
+      --ink-muted:  #898781;
+      --grid:       #2c2c2a;
+      --axis:       #383835;
+      --border:     rgba(255, 255, 255, 0.10);
+      --series-1:   #3987e5;
+      --pos:        #3987e5;
+      --neg:        #e66767;
+      --mid:        #383835;
+      --track:      #232322;
+      --hover:      rgba(255, 255, 255, 0.06);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --plane:      #0d0d0d;
+    --surface:    #1a1a19;
+    --ink:        #ffffff;
+    --ink-2:      #c3c2b7;
+    --ink-muted:  #898781;
+    --grid:       #2c2c2a;
+    --axis:       #383835;
+    --border:     rgba(255, 255, 255, 0.10);
+    --series-1:   #3987e5;
+    --pos:        #3987e5;
+    --neg:        #e66767;
+    --mid:        #383835;
+    --track:      #232322;
+    --hover:      rgba(255, 255, 255, 0.06);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--plane);
+    color: var(--ink);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 20px 64px; }
+
+  header { margin-bottom: 24px; }
+  h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px; }
+  .sub { color: var(--ink-2); font-size: 13px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+  .chip {
+    font-size: 12px; color: var(--ink-2); padding: 3px 9px;
+    border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px 20px;
+  }
+  .grid { display: grid; gap: 14px; }
+  .kpis { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin-bottom: 14px; }
+  .cols { grid-template-columns: 1.55fr 1fr; margin-bottom: 14px; }
+  @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } }
+
+  .kpi .label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--ink-muted); margin-bottom: 6px;
+  }
+  .kpi .value { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
+  .kpi .note { font-size: 12px; color: var(--ink-2); margin-top: 3px; }
+
+  h2 { font-size: 14px; font-weight: 600; margin: 0; }
+  .card-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; margin-bottom: 4px;
+  }
+  .card-note { font-size: 12px; color: var(--ink-muted); margin: 0 0 14px; }
+
+  .tabs { display: flex; gap: 2px; }
+  .tab {
+    font: inherit; font-size: 12px; color: var(--ink-2); cursor: pointer;
+    background: none; border: 1px solid transparent; border-radius: 6px; padding: 3px 9px;
+  }
+  .tab:hover { background: var(--hover); }
+  .tab[aria-selected="true"] { color: var(--ink); border-color: var(--border); background: var(--plane); }
+
+  /* Ranked list: a table whose bars are the chart. One series, one color. */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th {
+    text-align: left; font-weight: 500; font-size: 11px; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--ink-muted);
+    padding: 0 8px 7px 0; border-bottom: 1px solid var(--grid);
+  }
+  td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--grid); vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--hover); }
+  .rank { color: var(--ink-muted); width: 26px; font-variant-numeric: tabular-nums; }
+  .name { font-weight: 500; }
+  .name small { display: block; font-weight: 400; color: var(--ink-2); font-size: 12px; }
+  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .bar-cell { width: 34%; padding-right: 14px; }
+  .bar-track { height: 8px; background: var(--track); border-radius: 4px; overflow: hidden; }
+  .bar-fill { height: 100%; background: var(--series-1); border-radius: 4px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--ink-2); }
+  .swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; margin-right: 5px; }
+
+  svg { display: block; width: 100%; overflow: visible; }
+  .grid-line { stroke: var(--grid); stroke-width: 1; }
+  .axis-line { stroke: var(--axis); stroke-width: 1; }
+  .tick { fill: var(--ink-muted); font-size: 11px; }
+
+  .scroll-x { overflow-x: auto; }
+
+  /* Tooltip: one element reused by every chart. */
+  #tip {
+    position: fixed; pointer-events: none; opacity: 0; transition: opacity .09s;
+    background: var(--surface); color: var(--ink);
+    border: 1px solid var(--border); border-radius: 7px;
+    padding: 7px 10px; font-size: 12px; line-height: 1.45;
+    box-shadow: 0 4px 14px rgba(0,0,0,.14); z-index: 20; max-width: 240px;
+  }
+  #tip b { font-weight: 600; }
+  #tip .t-sub { color: var(--ink-2); }
+
+  .empty { padding: 60px 20px; text-align: center; color: var(--ink-2); }
+  .empty code {
+    display: inline-block; margin-top: 10px; padding: 8px 12px;
+    background: var(--plane); border: 1px solid var(--border); border-radius: 6px;
+    font-size: 12px; color: var(--ink);
+  }
+  .file-btn {
+    margin-top: 16px; font: inherit; font-size: 13px; cursor: pointer;
+    padding: 7px 14px; border-radius: 7px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--ink);
+  }
+  .file-btn:hover { background: var(--hover); }
+  footer { margin-top: 22px; font-size: 12px; color: var(--ink-muted); }
+</style>
+</head>
+<body>
+<div class="wrap" id="root">
+  <div class="empty" id="loading">Loading report…</div>
+</div>
+<div id="tip" role="status" aria-live="polite"></div>
+
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// Formatting
+// ---------------------------------------------------------------------------
+
+const fmtInt = n => (n ?? 0).toLocaleString("en-US");
+const fmtPct = x => (x * 100).toFixed(1) + "%";
+
+function fmtHours(hours) {
+  if (hours >= 1000) return (hours / 1000).toFixed(1) + "k h";
+  if (hours >= 10) return Math.round(hours).toLocaleString("en-US") + " h";
+  return hours.toFixed(1) + " h";
+}
+
+function fmtListen(ms) {
+  const h = ms / 3600000;
+  return h >= 1 ? fmtHours(h) : Math.round(ms / 60000) + " min";
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function isDark() {
+  const stamped = document.documentElement.getAttribute("data-theme");
+  if (stamped) return stamped === "dark";
+  return window.matchMedia("(prefers-color-scheme: dark)").matches;
+}
+
+// Sequential blue, one hue, light -> dark. On a dark surface the order flips so
+// that "near zero" is always the step closest to the surface.
+const BLUE_RAMP = ["#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7",
+                   "#3987e5", "#2a78d6", "#256abf", "#1c5cab", "#184f95", "#104281"];
+
+function rampColor(t) {
+  const ramp = isDark() ? BLUE_RAMP.slice().reverse() : BLUE_RAMP;
+  const i = Math.min(ramp.length - 1, Math.max(0, Math.round(t * (ramp.length - 1))));
+  return ramp[i];
+}
+
+// ---------------------------------------------------------------------------
+// Tooltip
+// ---------------------------------------------------------------------------
+
+const tip = document.getElementById("tip");
+
+function showTip(evt, html) {
+  tip.innerHTML = html;
+  tip.style.opacity = "1";
+  const pad = 14;
+  const box = tip.getBoundingClientRect();
+  let x = evt.clientX + pad;
+  let y = evt.clientY + pad;
+  if (x + box.width > window.innerWidth - 8) x = evt.clientX - box.width - pad;
+  if (y + box.height > window.innerHeight - 8) y = evt.clientY - box.height - pad;
+  tip.style.left = x + "px";
+  tip.style.top = y + "px";
+}
+
+function hideTip() { tip.style.opacity = "0"; }
+
+function bindTip(el, html) {
+  el.addEventListener("mousemove", e => showTip(e, html));
+  el.addEventListener("mouseleave", hideTip);
+}
+
+// ---------------------------------------------------------------------------
+// Small DOM helpers
+// ---------------------------------------------------------------------------
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+function el(tag, attrs = {}, ...kids) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") node.className = v;
+    else if (k === "html") node.innerHTML = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else node.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid != null) node.append(kid);
+  }
+  return node;
+}
+
+function svg(tag, attrs = {}) {
+  const node = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs)) node.setAttribute(k, v);
+  return node;
+}
+
+function card(title, note, ...body) {
+  const head = el("div", { class: "card-head" }, el("h2", {}, title));
+  const c = el("div", { class: "card" }, head);
+  if (note) c.append(el("p", { class: "card-note" }, note));
+  c.append(...body);
+  return { card: c, head };
+}
+
+// ---------------------------------------------------------------------------
+// Ranked list — a table whose bars encode magnitude
+// ---------------------------------------------------------------------------
+
+function rankedTable(rows, opts = {}) {
+  const limit = opts.limit ?? 15;
+  const shown = rows.slice(0, limit);
+  // The bar must encode whatever the list is *ranked* by, or it silently
+  // contradicts the ordering beside it.
+  const barKey = opts.barKey || "plays";
+  const barLabel = opts.barLabel || "Plays";
+  const max = Math.max(1, ...shown.map(r => r[barKey] || 0));
+
+  const head = el("tr", {},
+    el("th", {}, "#"),
+    el("th", {}, opts.nameLabel || "Artist"),
+    el("th", {}, ""),
+    el("th", { class: "num", style: "text-align:right" }, barLabel),
+    barKey === "plays" ? null : el("th", { class: "num", style: "text-align:right" }, "Plays"),
+    el("th", { class: "num", style: "text-align:right" }, "Listened"));
+
+  const body = el("tbody");
+  shown.forEach((r, i) => {
+    const value = r[barKey] || 0;
+    const fill = el("div", { class: "bar-fill", style: `width:${(value / max) * 100}%` });
+    const tr = el("tr", {},
+      el("td", { class: "rank" }, String(i + 1)),
+      el("td", { class: "name" },
+        r.name,
+        r.artist ? el("small", {}, r.artist) : null),
+      el("td", { class: "bar-cell" }, el("div", { class: "bar-track" }, fill)),
+      el("td", { class: "num" }, fmtInt(value)),
+      barKey === "plays" ? null : el("td", { class: "num" }, fmtInt(r.plays)),
+      el("td", { class: "num" }, fmtListen(r.ms)));
+
+    const parts = [`<b>${escapeHtml(r.name)}</b>`];
+    if (r.artist) parts.push(`<span class="t-sub">${escapeHtml(r.artist)}</span>`);
+    parts.push(`${fmtInt(r.plays)} plays · ${fmtListen(r.ms)}`);
+    if (r.distinct_days) parts.push(`<span class="t-sub">heard on ${fmtInt(r.distinct_days)} days</span>`);
+    if (r.skips) {
+      parts.push(`<span class="t-sub">${fmtPct(r.skips / r.plays)} skipped</span>`);
+    }
+    parts.push(`<span class="t-sub">${r.first_seen} → ${r.last_seen}</span>`);
+    bindTip(tr, parts.join("<br>"));
+    body.append(tr);
+  });
+
+  return el("div", { class: "scroll-x" },
+    el("table", {}, el("thead", {}, head), body));
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+// ---------------------------------------------------------------------------
+// Diverging bars — momentum, blue (rising) vs red (falling)
+// ---------------------------------------------------------------------------
+
+function momentumChart(rising, falling, windowDays) {
+  const rows = [...rising.slice(0, 5), ...falling.slice(0, 5)]
+    .sort((a, b) => b.momentum - a.momentum);
+  if (!rows.length) return el("p", { class: "card-note" }, "Not enough history to measure trends.");
+
+  const rowH = 26, labelW = 128, w = 380, mid = labelW + (w - labelW) / 2;
+  const h = rows.length * rowH + 22;
+  const s = svg("svg", { viewBox: `0 0 ${w} ${h}`, role: "img" });
+  const half = (w - labelW) / 2 - 8;
+
+  // Neutral midline: the "no change" position the bars diverge from.
+  const axis = svg("line", { x1: mid, y1: 4, x2: mid, y2: rows.length * rowH + 2 });
+  axis.setAttribute("class", "axis-line");
+  s.append(axis);
+
+  rows.forEach((r, i) => {
+    const y = i * rowH + 4;
+    const up = r.momentum >= 0;
+    const len = Math.abs(r.momentum) * half;
+
+    const label = svg("text", {
+      x: labelW - 10, y: y + 13, "text-anchor": "end", class: "tick",
+    });
+    label.setAttribute("fill", "var(--ink-2)");
+    label.textContent = r.name.length > 17 ? r.name.slice(0, 16) + "…" : r.name;
+    s.append(label);
+
+    const bar = svg("rect", {
+      x: up ? mid : mid - len, y: y + 4, width: Math.max(len, 1.5), height: 10,
+      rx: 4, fill: up ? "var(--pos)" : "var(--neg)",
+    });
+    s.append(bar);
+
+    const val = svg("text", {
+      x: up ? mid + len + 6 : mid - len - 6, y: y + 13,
+      "text-anchor": up ? "start" : "end", class: "tick",
+    });
+    val.textContent = (up ? "+" : "") + Math.round(r.momentum * 100) + "%";
+    s.append(val);
+
+    const hit = svg("rect", { x: 0, y, width: w, height: rowH - 2, fill: "transparent" });
+    bindTip(hit, `<b>${escapeHtml(r.name)}</b><br>` +
+      `${up ? "Rising" : "Falling"} — ${(up ? "+" : "") + Math.round(r.momentum * 100)}%<br>` +
+      `<span class="t-sub">${fmtInt(r.plays)} plays all time</span>`);
+    s.append(hit);
+  });
+
+  const legend = el("div", { class: "legend", style: "margin-top:10px" },
+    el("span", { html: `<span class="swatch" style="background:var(--pos)"></span>Rising` }),
+    el("span", { html: `<span class="swatch" style="background:var(--neg)"></span>Falling` }),
+    el("span", { style: "color:var(--ink-muted)" },
+      `last ${windowDays} days vs the ${windowDays} before`));
+
+  return el("div", {}, s, legend);
+}
+
+// ---------------------------------------------------------------------------
+// Heatmap — weekday × hour, sequential blue
+// ---------------------------------------------------------------------------
+
+function heatmap(matrix) {
+  const cols = 24, rows = 7;
+  const cell = 30, gap = 2, left = 34, top = 18;
+  const w = left + cols * cell, h = top + rows * cell + 6;
+  const s = svg("svg", { viewBox: `0 0 ${w} ${h}`, role: "img" });
+
+  let peak = 0, total = 0;
+  for (const row of matrix) for (const v of row) { peak = Math.max(peak, v); total += v; }
+  if (peak === 0) return el("p", { class: "card-note" }, "No data.");
+
+  for (let hcol = 0; hcol < cols; hcol += 3) {
+    const t = svg("text", {
+      x: left + hcol * cell + (cell - gap) / 2, y: 11,
+      "text-anchor": "middle", class: "tick",
+    });
+    t.textContent = String(hcol).padStart(2, "0");
+    s.append(t);
+  }
+
+  for (let r = 0; r < rows; r++) {
+    const lab = svg("text", { x: left - 8, y: top + r * cell + cell / 2 + 4,
+                              "text-anchor": "end", class: "tick" });
+    lab.textContent = WEEKDAYS[r];
+    s.append(lab);
+
+    for (let c = 0; c < cols; c++) {
+      const v = matrix[r][c];
+      // Square-root scaling: linear scaling collapses everything but the peak
+      // hour into the lightest step and the pattern disappears.
+      const t = peak > 0 ? Math.sqrt(v / peak) : 0;
+      const rect = svg("rect", {
+        x: left + c * cell, y: top + r * cell,
+        width: cell - gap, height: cell - gap, rx: 3,
+        fill: v === 0 ? "var(--track)" : rampColor(t),
+      });
+      bindTip(rect, `<b>${WEEKDAYS[r]} ${String(c).padStart(2, "0")}:00</b><br>` +
+        `${fmtInt(v)} plays<br><span class="t-sub">${fmtPct(v / total)} of all listening</span>`);
+      s.append(rect);
+    }
+  }
+
+  const steps = [0, 0.25, 0.5, 0.75, 1].map(t =>
+    `<span class="swatch" style="background:${rampColor(t)}"></span>`).join("");
+  const legend = el("div", { class: "legend", style: "margin-top:12px" },
+    el("span", { html: `fewer ${steps} more` }),
+    el("span", { style: "color:var(--ink-muted)" }, `peak ${fmtInt(peak)} plays in one weekday-hour`));
+
+  return el("div", {}, el("div", { class: "scroll-x" }, s), legend);
+}
+
+// ---------------------------------------------------------------------------
+// Time series — daily plays, with crosshair
+// ---------------------------------------------------------------------------
+
+function dailyChart(daily) {
+  if (daily.length < 2) return el("p", { class: "card-note" }, "Not enough days to plot.");
+
+  // Smooth to a 7-day trailing mean: raw daily counts on a multi-year window are
+  // noise, and the question this chart answers is about the trend.
+  const win = daily.length > 120 ? 7 : 1;
+  const smooth = daily.map((d, i) => {
+    const from = Math.max(0, i - win + 1);
+    let sum = 0;
+    for (let k = from; k <= i; k++) sum += daily[k].plays;
+    return sum / (i - from + 1);
+  });
+
+  const w = 900, h = 210, padL = 40, padR = 12, padT = 10, padB = 26;
+  const plotW = w - padL - padR, plotH = h - padT - padB;
+  const maxY = Math.max(...smooth) * 1.08 || 1;
+  const x = i => padL + (i / (daily.length - 1)) * plotW;
+  const y = v => padT + plotH - (v / maxY) * plotH;
+
+  const s = svg("svg", { viewBox: `0 0 ${w} ${h}`, role: "img" });
+
+  for (let g = 0; g <= 3; g++) {
+    const gy = padT + (g / 3) * plotH;
+    const line = svg("line", { x1: padL, y1: gy, x2: w - padR, y2: gy });
+    line.setAttribute("class", "grid-line");
+    s.append(line);
+    const t = svg("text", { x: padL - 8, y: gy + 4, "text-anchor": "end", class: "tick" });
+    t.textContent = fmtInt(Math.round(maxY * (1 - g / 3)));
+    s.append(t);
+  }
+
+  const line = smooth.map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+  const area = svg("path", {
+    d: `${line}L${x(daily.length - 1)},${padT + plotH}L${padL},${padT + plotH}Z`,
+    fill: "var(--series-1)", opacity: 0.10,
+  });
+  s.append(area);
+  s.append(svg("path", {
+    d: line, fill: "none", stroke: "var(--series-1)", "stroke-width": 2,
+    "stroke-linejoin": "round", "stroke-linecap": "round",
+  }));
+
+  for (let k = 0; k <= 4; k++) {
+    const i = Math.round((k / 4) * (daily.length - 1));
+    // Anchor the first and last labels inward; centring them at the plot edges
+    // pushes half of each one outside the viewBox.
+    const anchor = k === 0 ? "start" : k === 4 ? "end" : "middle";
+    const t = svg("text", { x: x(i), y: h - 6, "text-anchor": anchor, class: "tick" });
+    t.textContent = daily[i].date.slice(0, 7);
+    s.append(t);
+  }
+
+  // Crosshair layer
+  const cross = svg("line", { y1: padT, y2: padT + plotH, class: "grid-line", opacity: 0 });
+  cross.setAttribute("stroke", "var(--axis)");
+  const dot = svg("circle", { r: 4, fill: "var(--series-1)", stroke: "var(--surface)",
+                              "stroke-width": 2, opacity: 0 });
+  s.append(cross, dot);
+
+  const hit = svg("rect", { x: padL, y: padT, width: plotW, height: plotH, fill: "transparent" });
+  hit.addEventListener("mousemove", evt => {
+    const box = s.getBoundingClientRect();
+    const rel = (evt.clientX - box.left) / box.width * w;
+    const i = Math.min(daily.length - 1, Math.max(0,
+      Math.round(((rel - padL) / plotW) * (daily.length - 1))));
+    cross.setAttribute("x1", x(i));
+    cross.setAttribute("x2", x(i));
+    cross.setAttribute("opacity", 1);
+    dot.setAttribute("cx", x(i));
+    dot.setAttribute("cy", y(smooth[i]));
+    dot.setAttribute("opacity", 1);
+    showTip(evt, `<b>${daily[i].date}</b><br>${fmtInt(daily[i].plays)} plays that day<br>` +
+      (win > 1 ? `<span class="t-sub">${smooth[i].toFixed(1)}/day over the prior week</span>` : ""));
+  });
+  hit.addEventListener("mouseleave", () => {
+    cross.setAttribute("opacity", 0);
+    dot.setAttribute("opacity", 0);
+    hideTip();
+  });
+  s.append(hit);
+
+  const note = win > 1
+    ? `7-day trailing mean across ${fmtInt(daily.length)} days`
+    : `daily plays across ${fmtInt(daily.length)} days`;
+  return el("div", {}, el("div", { class: "scroll-x" }, s),
+    el("div", { class: "legend", style: "margin-top:8px" },
+      el("span", { html: `<span class="swatch" style="background:var(--series-1)"></span>${note}` })));
+}
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
+
+function kpi(label, value, note) {
+  return el("div", { class: "card kpi" },
+    el("div", { class: "label" }, label),
+    el("div", { class: "value" }, value),
+    note ? el("div", { class: "note" }, note) : null);
+}
+
+function render(d) {
+  const root = document.getElementById("root");
+  root.textContent = "";
+
+  const sum = d.summary, meta = d.meta;
+
+  root.append(el("header", {},
+    el("h1", {}, "Listening Analytics"),
+    el("div", { class: "sub" },
+      `${sum.first_seen} → ${sum.last_seen} · ${fmtInt(sum.total_events)} plays · ` +
+      `${fmtInt(sum.distinct_users)} listener${sum.distinct_users === 1 ? "" : "s"}`),
+    el("div", { class: "chips" },
+      (d.ingest.by_source || []).map(s =>
+        el("span", { class: "chip" }, `${sourceLabel(s.source)} · ${fmtInt(s.plays)}`)))));
+
+  root.append(el("div", { class: "grid kpis" },
+    kpi("Plays", fmtInt(sum.total_events),
+        `${fmtInt(sum.distinct_tracks)} distinct tracks`),
+    kpi("Time listened", fmtHours(sum.total_hours),
+        sum.total_hours > 0 ? `${(sum.total_hours / 24).toFixed(0)} full days` : "not reported"),
+    kpi("Artists", fmtInt(sum.distinct_artists),
+        `top 10 hold ${fmtPct(sum.top10_artist_share)}`),
+    kpi("Sessions", fmtInt(sum.sessions.count),
+        `${sum.sessions.mean_events.toFixed(1)} plays each on average`),
+    kpi("Skip rate", fmtPct(sum.skip_rate),
+        `under ${meta.session_gap_minutes}-min session gaps`),
+    kpi("Longest session", fmtHours(sum.sessions.longest_minutes / 60),
+        "single unbroken stretch")));
+
+  // Top lists with a dimension switcher.
+  const tabs = [
+    ["Artists", d.top_artists, "Artist"],
+    ["Tracks", d.top_tracks, "Track"],
+    ["Albums", d.top_albums, "Album"],
+  ].filter(t => t[1] && t[1].length);
+
+  const listBody = el("div", {});
+  const built = card("Most played",
+    `Ranked by a blend of play count and listening time (weight ${meta.time_weight}).`,
+    listBody);
+
+  const tabRow = el("div", { class: "tabs", role: "tablist" });
+  tabs.forEach(([label, rows, nameLabel], idx) => {
+    const btn = el("button", {
+      class: "tab", role: "tab", "aria-selected": idx === 0 ? "true" : "false",
+      onclick: () => {
+        tabRow.querySelectorAll(".tab").forEach(b => b.setAttribute("aria-selected", "false"));
+        btn.setAttribute("aria-selected", "true");
+        listBody.textContent = "";
+        listBody.append(rankedTable(rows, { nameLabel }));
+      },
+    }, label);
+    tabRow.append(btn);
+  });
+  built.head.append(tabRow);
+  if (tabs.length) listBody.append(rankedTable(tabs[0][1], { nameLabel: tabs[0][2] }));
+
+  const trends = card("Momentum",
+    "How much of each artist's recent listening falls in the latest window.",
+    momentumChart(d.rising || [], d.falling || [], meta.trend_window_days));
+
+  root.append(el("div", { class: "grid cols" }, built.card, trends.card));
+
+  root.append(el("div", { class: "grid", style: "margin-bottom:14px" },
+    card("When you listen",
+      "Plays by weekday and hour of day, UTC. Shading is square-root scaled.",
+      heatmap(d.patterns.weekday_hour)).card));
+
+  root.append(el("div", { class: "grid", style: "margin-bottom:14px" },
+    card("Plays over time", null, dailyChart(d.daily || [])).card));
+
+  if (d.loyalty && d.loyalty.length) {
+    root.append(el("div", { class: "grid" },
+      card("Staying power",
+        "Artists ranked by how many separate days they were played on, not by volume — " +
+        "this is what separates a lasting favourite from a weekend binge.",
+        rankedTable(d.loyalty, {
+          limit: 10, nameLabel: "Artist",
+          barKey: "distinct_days", barLabel: "Days heard",
+        })).card));
+  }
+
+  root.append(el("footer", {},
+    `Generated by ${escapeHtml(meta.generator)} — ` +
+    `ingest ${meta.timings_ms.ingest} ms, aggregate ${meta.timings_ms.aggregate} ms, ` +
+    `rank ${meta.timings_ms.rank} ms for ${fmtInt(sum.total_events)} events.`));
+}
+
+function sourceLabel(key) {
+  return {
+    spotify_extended_history: "Spotify history",
+    lastfm_1k_dataset: "Last.fm dataset",
+    lastfm_api: "Last.fm API",
+  }[key] || key;
+}
+
+function showEmpty(message) {
+  const root = document.getElementById("root");
+  root.textContent = "";
+  const picker = el("input", { type: "file", accept: ".json", style: "display:none" });
+  picker.addEventListener("change", () => {
+    const file = picker.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try { render(JSON.parse(reader.result)); }
+      catch (err) { showEmpty("That file is not a valid report: " + err.message); }
+    };
+    reader.readAsText(file);
+  });
+
+  root.append(el("div", { class: "empty" },
+    el("p", {}, message),
+    el("p", {},
+      el("code", {}, "./build/sae data/*.json --out dashboard/report.json")),
+    el("p", { style: "margin-top:18px" },
+      el("code", {}, "python3 -m http.server -d dashboard 8000")),
+    el("button", { class: "file-btn", onclick: () => picker.click() },
+      "…or open a report.json"),
+    picker));
+}
+
+async function boot() {
+  // Three ways in: data baked into the page, a sibling report.json when served,
+  // or the file picker when the page is opened straight off disk.
+  if (window.__SAE_REPORT__) return render(window.__SAE_REPORT__);
+  try {
+    const resp = await fetch("report.json", { cache: "no-store" });
+    if (resp.ok) return render(await resp.json());
+  } catch (err) {
+    // file:// blocks fetch; fall through to the picker.
+  }
+  showEmpty("No report loaded. Run the engine, then serve this folder:");
+}
+
+// Re-render on theme change so the heatmap ramp re-steps for the new surface.
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (window.__SAE_LAST__) render(window.__SAE_LAST__);
+});
+
+const originalRender = render;
+render = function (data) {   // eslint-disable-line no-func-assign
+  window.__SAE_LAST__ = data;
+  return originalRender(data);
+};
+
+boot();
+</script>
+</body>
+</html>
